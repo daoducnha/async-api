@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -13,8 +14,7 @@ import java.util.stream.Stream;
 public class App {
 
 
-
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException, ExecutionException {
         System.out.println("Starting parallel task.......................");
         long start = System.nanoTime();
 
@@ -43,25 +43,51 @@ public class App {
     private static CompletableFuture<List<String>> getSnapshotsByType(String type) {
         return CompletableFuture.supplyAsync(() -> ConditionSnapshotService.getSnapshotsUrl(type));
     }
-    public static List<Condition> getConditions_v2() {
+
+    public static List<Condition> getConditions_v2() throws InterruptedException, ExecutionException {
         Executor executor = getExecutor();
         List<String> urls = new ArrayList<>();
         List<Condition> conditions = new ArrayList<>();
 
-        CompletableFuture.allOf(getUrlsStream(executor)
-                .map(f -> f.thenApply(urls::addAll))
-                .toArray(CompletableFuture[]::new))
-                .join();
+        List<String> types = Arrays.asList("A1", "L1");
+        List<CompletableFuture<List<String>>> completableFutures = types.stream()
+                .map(type -> CompletableFuture.supplyAsync(() -> ConditionSnapshotService.getSnapshotsUrl(type)))
+                .collect(Collectors.toList());
+
+        CompletableFuture<List<String>> allSnapshotLinksFutures = CompletableFuture
+                .allOf(completableFutures.toArray(CompletableFuture[]::new)).thenApply(v ->
+                        completableFutures.stream()
+                                .map(CompletableFuture::join)
+                                .flatMap(List::stream)
+                                .collect(Collectors.toList())
+                );
 
 
-        CompletableFuture.allOf(getConditionsStream(urls, executor)
-                .map(f -> f.thenApply(conditions::add)
-                        .exceptionally(ex -> false))
-                .toArray(CompletableFuture[]::new)).join();
+        CompletableFuture<List<Condition>> cf = allSnapshotLinksFutures.thenApply(strings ->
+                strings.stream()
+                        .map(s -> CompletableFuture.supplyAsync(() -> ConditionService.getConditionByUrl(s)))
+                        .map(CompletableFuture::join)
+                        .collect(Collectors.toList())
+        );
 
-//        conditions.sort(Comparator.comparing(Condition::getId));
+        return cf.get();
 
-        return conditions;
+
+//                .stream()
+//                .map(url -> CompletableFuture.supplyAsync(() -> ConditionService.getConditionByUrl(url)))
+//                .collect(Collectors.toList());
+
+//        CompletableFuture<Void> allFutures = CompletableFuture.allOf(conditionFutures.toArray(CompletableFuture[]::new));
+//
+//        CompletableFuture<List<Condition>> allConditionFuture = allFutures.thenApply(v ->
+//                conditionFutures.stream()
+//                        .map(CompletableFuture::join)
+//                        .collect(Collectors.toList()))
+//                .thenApply(conditionList ->
+//                        conditionList.stream()
+//                                .sorted(Comparator.comparing(Condition::getId))
+//                                .collect(Collectors.toList()));
+//        return allConditionFuture.get();
     }
 
 
@@ -75,10 +101,10 @@ public class App {
 
                 .collect(Collectors.toList());
 
-        return  conditionFutures.stream()
+        return conditionFutures.stream()
                 .map(future -> future.whenComplete((condition, throwable) -> {
-                    if(throwable!= null){
-                        System.out.println("Error: "+throwable.getMessage());
+                    if (throwable != null) {
+                        System.out.println("Error: " + throwable.getMessage());
                     }
                 }))
                 .map(CompletableFuture::join)
@@ -86,31 +112,28 @@ public class App {
                 .collect(Collectors.toList());
     }
 
-    public static List<Condition> getConditions_v1() {
-
+    public static List<Condition> getConditions_v1() throws InterruptedException, ExecutionException {
 
         List<String> types = Arrays.asList("A1", "L1");
 
         Executor executor = getExecutor();
-        List<CompletableFuture<List<String>>> urlsFuture = types.stream()
-                .map(s -> CompletableFuture.supplyAsync(
-                        () -> ConditionSnapshotService.getSnapshotsUrl(s), executor
-                ))
+
+        List<CompletableFuture<List<String>>> urlsFutures = types.stream()
+                .map(s -> CompletableFuture.supplyAsync(() -> ConditionSnapshotService.getSnapshotsUrl(s), executor))
                 .collect(Collectors.toList());
 
-
-        List<String> urls = urlsFuture.stream()
+        List<String> urls = urlsFutures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
 
 
         List<CompletableFuture<Condition>> conditionFuture = urls.stream()
-                .map(s -> CompletableFuture.supplyAsync(
-                        () -> ConditionService.getConditionByUrl(s), executor
-                )).collect(Collectors.toList());
+                .map(s -> CompletableFuture.supplyAsync(() -> ConditionService.getConditionByUrl(s), executor))
+                .collect(Collectors.toList());
 
-        return conditionFuture.stream().map(CompletableFuture::join)
+        return conditionFuture.stream()
+                .map(CompletableFuture::join)
                 .sorted(Comparator.comparing(Condition::getId))
                 .collect(Collectors.toList());
     }
