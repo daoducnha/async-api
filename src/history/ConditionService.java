@@ -1,17 +1,14 @@
 package history;
 
-import java.util.Random;
-
 public class ConditionService {
 
-    public Condition getConditionByUrl(String url) {
+    public static  Condition getConditionByUrl(String url) {
         randomDelay();
         String[] split = url.split("/");
-
-        return new Condition(split[split.length - 1], url);
+        return new Condition(Integer.parseInt(split[split.length - 1]), url);
     }
 
-    private void randomDelay() {
+    private static void randomDelay() {
         int delay = 1000;
         try {
             Thread.sleep(delay);

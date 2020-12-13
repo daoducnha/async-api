@@ -1,19 +1,19 @@
 package history;
 
 public class Condition {
-    private String id;
+    private int id;
     private String url;
 
-    public Condition(String id, String url) {
+    public Condition(int id, String url) {
         this.id = id;
         this.url = url;
     }
 
-    public String getId() {
+    public int getId() {
         return id;
     }
 
-    public void setId(String id) {
+    public void setId(int id) {
         this.id = id;
     }
 
